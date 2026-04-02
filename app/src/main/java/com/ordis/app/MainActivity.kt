@@ -107,10 +107,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         voiceManager.init()
 
         // Глобальные действия для UI
-        AppActions.onToggleListening = {
+        AppActions.onToggleListening = toggle@{
             if (!micGranted) {
-                askPermissions()
-                return@onToggleListening
+             askPermissions()
+             return@toggle
             }
             if (MainUiState.isListening.value) stopListening() else startListening()
         }
@@ -127,9 +127,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
 
         // Хук для текстового ChatScreen
-        AppActions.onChatSend = { userText ->
+        AppActions.onChatSend = chat@{ userText ->
             val clean = userText.trim()
-            if (clean.isBlank()) return@onChatSend
+            if (clean.isBlank()) return@chat
 
             ChatUiState.isThinking.value = true
             ChatUiState.networkState.value = "ready"
