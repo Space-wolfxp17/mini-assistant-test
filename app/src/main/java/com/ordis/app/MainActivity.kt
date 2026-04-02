@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import com.ordis.app.core.AppActions
+import com.ordis.app.data.repo.SettingsRepository
 import com.ordis.app.ui.MainUiState
 import com.ordis.app.ui.theme.OrdisTheme
 import com.ordis.app.voice.CommandProcessor
@@ -18,6 +19,7 @@ import java.util.Locale
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
+    private lateinit var settingsRepository: SettingsRepository
     private lateinit var commandProcessor: CommandProcessor
     private lateinit var voiceManager: VoiceManager
 
@@ -38,11 +40,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         enableEdgeToEdge()
 
         tts = TextToSpeech(this, this)
-        commandProcessor = CommandProcessor(this) { speak(it) }
+
+        // Один инстанс репозитория для Activity
+        settingsRepository = SettingsRepository()
+
+        // ВАЖНО: новый конструктор с settingsRepository
+        commandProcessor = CommandProcessor(
+            context = this,
+            settingsRepository = settingsRepository,
+            speak = { speak(it) }
+        )
 
         voiceManager = VoiceManager(
             context = this,
             onText = { text ->
+                // активация по имени
                 if (text.lowercase().contains("ордис")) {
                     commandProcessor.process(text)
                 }
@@ -56,13 +68,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 askPermissions()
                 return@onToggleListening
             }
-            val currently = MainUiState.isListening.value
-            if (currently) {
+            val listening = MainUiState.isListening.value
+            if (listening) {
                 voiceManager.stopLoop()
                 MainUiState.setListening(false)
+                MainUiState.setVoiceState("Остановлено")
             } else {
                 voiceManager.startLoop()
                 MainUiState.setListening(true)
+                MainUiState.setVoiceState("Слушаю...")
             }
         }
 
@@ -78,7 +92,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale("ru", "RU")
-            speak("Привет, я Ордис.")
+            speak("Привет, я Ордис. Готова к командам.")
         }
     }
 
