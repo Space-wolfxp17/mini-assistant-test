@@ -1,77 +1,27 @@
-package com.ordis.app.navigation
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="com.ordis.app" xmlns:android="http://schemas.android.com/apk/res/android">
 
-import androidx.compose.runtime.Composable
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.ordis.app.data.repo.ConsoleRepository
-import com.ordis.app.data.repo.SettingsRepository
-import com.ordis.app.data.repo.VersionRepository
-import com.ordis.app.ui.screens.ChatScreen
-import com.ordis.app.ui.screens.ConsoleScreen
-import com.ordis.app.ui.screens.HomeScreen
-import com.ordis.app.ui.screens.SettingsScreen
-import com.ordis.app.ui.screens.VersionsScreen
-import com.ordis.app.ui.screens.VoiceControlScreen
+    <!-- Ровно по одному разрешению -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-@Composable
-fun AppNavGraph(
-    settingsRepository: SettingsRepository,
-    versionRepository: VersionRepository,
-    consoleRepository: ConsoleRepository,
-    navController: NavHostController = rememberNavController()
-) {
-    NavHost(
-        navController = navController,
-        startDestination = Routes.Home.route
-    ) {
-        composable(Routes.Home.route) {
-            HomeScreen(
-                onOpenChat = { navController.navigate(Routes.Chat.route) },
-                onOpenVoice = { navController.navigate(Routes.Voice.route) },
-                onOpenConsole = { navController.navigate(Routes.Console.route) },
-                onOpenVersions = { navController.navigate(Routes.Versions.route) },
-                onOpenSettings = { navController.navigate(Routes.Settings.route) }
-            )
-        }
+    <application
+        android:allowBackup="true"
+        android:label="Ordis"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Ordis">
 
-        composable(Routes.Chat.route) {
-            ChatScreen(
-                onBack = { navController.popBackStack() },
-                settingsRepository = settingsRepository,
-                consoleRepository = consoleRepository
-            )
-        }
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
-        composable(Routes.Voice.route) {
-            VoiceControlScreen(
-                onBack = { navController.popBackStack() },
-                consoleRepository = consoleRepository
-            )
-        }
-
-        composable(Routes.Console.route) {
-            ConsoleScreen(
-                onBack = { navController.popBackStack() },
-                consoleRepository = consoleRepository
-            )
-        }
-
-        composable(Routes.Versions.route) {
-            VersionsScreen(
-                onBack = { navController.popBackStack() },
-                versionRepository = versionRepository,
-                consoleRepository = consoleRepository
-            )
-        }
-
-        composable(Routes.Settings.route) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() },
-                settingsRepository = settingsRepository,
-                consoleRepository = consoleRepository
-            )
-        }
-    }
-}
+    </application>
+</manifest>
