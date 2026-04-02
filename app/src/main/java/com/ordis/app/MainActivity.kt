@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import com.ordis.app.core.AppActions
 import com.ordis.app.ui.MainUiState
 import com.ordis.app.ui.theme.OrdisTheme
 import com.ordis.app.voice.CommandProcessor
@@ -20,12 +21,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var commandProcessor: CommandProcessor
     private lateinit var voiceManager: VoiceManager
 
-    private val requestPermissionLauncher =
+    private var micGranted = false
+
+    private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-            val micGranted = result[Manifest.permission.RECORD_AUDIO] == true
+            micGranted = result[Manifest.permission.RECORD_AUDIO] == true
             if (micGranted) {
-                voiceManager.startLoop()
-                MainUiState.setListening(true)
+                MainUiState.setVoiceState("Микрофон готов")
             } else {
                 MainUiState.setVoiceState("Нет доступа к микрофону")
             }
@@ -45,21 +47,38 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     commandProcessor.process(text)
                 }
             },
-            onState = { state -> MainUiState.setVoiceState(state) }
+            onState = { MainUiState.setVoiceState(it) }
         )
         voiceManager.init()
 
-        askInitialPermissions()
+        AppActions.onToggleListening = {
+            if (!micGranted) {
+                askPermissions()
+                return@onToggleListening
+            }
+            val currently = MainUiState.isListening.value
+            if (currently) {
+                voiceManager.stopLoop()
+                MainUiState.setListening(false)
+            } else {
+                voiceManager.startLoop()
+                MainUiState.setListening(true)
+            }
+        }
+
+        askPermissions()
 
         setContent {
-            OrdisTheme { OrdisApp() }
+            OrdisTheme {
+                OrdisApp()
+            }
         }
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale("ru", "RU")
-            speak("Привет, я Ордис. Готова к командам.")
+            speak("Привет, я Ордис.")
         }
     }
 
@@ -67,18 +86,19 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ordis_tts")
     }
 
-    private fun askInitialPermissions() {
-        val permissions = mutableListOf(
+    private fun askPermissions() {
+        val list = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CAMERA
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions += Manifest.permission.POST_NOTIFICATIONS
+            list += Manifest.permission.POST_NOTIFICATIONS
         }
-        requestPermissionLauncher.launch(permissions.toTypedArray())
+        permissionLauncher.launch(list.toTypedArray())
     }
 
     override fun onDestroy() {
+        AppActions.onToggleListening = null
         voiceManager.release()
         tts.stop()
         tts.shutdown()
