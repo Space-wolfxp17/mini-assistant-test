@@ -1,5 +1,10 @@
 package com.ordis.app.ui.screens
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
+import com.ordis.app.ui.MainUiState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
