@@ -1,0 +1,13 @@
+{
+  "name": "mini-assistant-test",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo static"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  }
+}
