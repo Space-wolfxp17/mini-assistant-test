@@ -1,27 +1,55 @@
-<?xml version="1.0" encoding="utf-8"?>
-<manifest package="com.ordis.app" xmlns:android="http://schemas.android.com/apk/res/android">
+package com.ordis.app.navigation
 
-    <!-- Ровно по одному разрешению -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import com.ordis.app.data.repo.SettingsRepository
+import com.ordis.app.ui.chat.ChatScreen
+import com.ordis.app.ui.screens.HomeScreen
+import com.ordis.app.ui.screens.SettingsScreen
+import com.ordis.app.core.AppActions
 
-    <application
-        android:allowBackup="true"
-        android:label="Ordis"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.Ordis">
+object Routes {
+    const val HOME = "home"
+    const val CHAT = "chat"
+    const val SETTINGS = "settings"
+}
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTask">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+@Composable
+fun AppNavGraph(
+    navController: NavHostController,
+    settingsRepository: SettingsRepository,
+    modifier: Modifier = Modifier
+) {
+    NavHost(
+        navController = navController,
+        startDestination = Routes.HOME,
+        modifier = modifier
+    ) {
+        composable(Routes.HOME) {
+            // ВАЖНО:
+            // Используем максимально "безопасный" вызов HomeScreen:
+            // если у тебя другая сигнатура HomeScreen — замени только этот блок.
+            HomeScreen(
+                onOpenChat = { navController.navigate(Routes.CHAT) },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) }
+            )
+        }
 
-    </application>
-</manifest>
+        composable(Routes.CHAT) {
+            ChatScreen(
+                onSend = { text ->
+                    AppActions.onChatSend?.invoke(text)
+                }
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                settingsRepository = settingsRepository
+            )
+        }
+    }
+}
