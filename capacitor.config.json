@@ -1,6 +1,0 @@
-{
-  "appId": "com.mini.assistant.test",
-  "appName": "Mini Assistant Test",
-  "webDir": "web",
-  "server": { "androidScheme": "https" }
-}
