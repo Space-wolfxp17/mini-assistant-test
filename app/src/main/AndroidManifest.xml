@@ -7,7 +7,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
-        android:name=".OrdisApp"
         android:allowBackup="true"
         android:label="Ордис"
         android:supportsRtl="true"
