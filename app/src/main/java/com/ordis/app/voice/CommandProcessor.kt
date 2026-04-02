@@ -6,57 +6,77 @@ import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.provider.Settings
-import com.ordis.app.ai.GeminiPlanner
-import com.ordis.app.data.repo.SettingsRepository
-import kotlin.concurrent.thread
+import com.ordis.app.chat.ConversationManager
 
 class CommandProcessor(
     private val context: Context,
-    private val settingsRepository: SettingsRepository,
-    private val speak: (String) -> Unit
+    private val speak: (String) -> Unit,
+    private val conversationManager: ConversationManager
 ) {
-    private val geminiPlanner = GeminiPlanner {
-        settingsRepository.settings.value.geminiApiKey
-    }
 
+    /**
+     * Возвращает true, если запрос обработан.
+     * Логика:
+     * 1) Если это action-команда (камера/поиск/настройки/музыка и т.п.) — выполнить.
+     * 2) Иначе отправить в ConversationManager как обычный диалог.
+     */
     fun process(rawText: String): Boolean {
-        val text = rawText.lowercase().trim()
-        val cmd = text.removePrefix("привет ордис").removePrefix("ордис").trim()
+        val text = normalize(rawText)
+
+        // Нужна активация "ордис" в начале/содержании
+        if (!text.contains("ордис")) return false
+
+        // Убираем обращение
+        val cmd = text
+            .replace("привет ордис", "")
+            .replace("ордис", "")
+            .trim()
 
         if (cmd.isBlank()) {
-            speak("Слушаю")
-            return false
+            speak("Да, я слушаю")
+            return true
         }
 
-        // Локальные быстрые правила
-        localPlan(cmd)?.let { action ->
+        // --- Action-команды (без режимов) ---
+        parseAction(cmd)?.let { action ->
             return executeAction(action)
         }
 
-        // Онлайн-планер (Gemini) в фоне
-        thread {
-            val action = geminiPlanner.plan(cmd)
-            if (action == null) {
-                speak("Не удалось распознать команду онлайн")
-            } else {
-                executeAction(action)
-            }
-        }
-        speak("Уточняю команду через интернет")
+        // --- Обычный разговор / обучение / рассуждение ---
+        // Всё, что не action, уходит в диалоговый движок
+        conversationManager.reply(cmd)
         return true
     }
 
-    private fun localPlan(cmd: String): String? {
+    private fun parseAction(cmd: String): String? {
+        val c = cmd.lowercase()
+
         return when {
-            cmd.startsWith("найди ") -> "SEARCH_YANDEX:${cmd.removePrefix("найди").trim()}"
-            cmd.contains("открой камеру") || cmd.contains("включи камеру") -> "OPEN_CAMERA"
-            cmd.contains("сними на видео") || cmd.contains("запиши видео") -> "OPEN_VIDEO_CAMERA"
-            cmd.contains("открой настройки") -> "OPEN_SETTINGS"
-            cmd.contains("включи музыку в вк") || cmd.contains("музыка в вк") -> "OPEN_VK"
-            cmd.contains("открой ютуб") -> "OPEN_PACKAGE:com.google.android.youtube"
-            cmd.contains("открой браузер") -> "OPEN_URL:https://yandex.ru"
-            cmd.contains("поставь таймер") -> "SET_TIMER_60"
-            cmd.contains("поставь будильник") -> "SET_ALARM"
+            // Поиск
+            c.startsWith("найди ") -> "SEARCH_YANDEX:${c.removePrefix("найди").trim()}"
+            c.startsWith("поиск ") -> "SEARCH_YANDEX:${c.removePrefix("поиск").trim()}"
+
+            // Камера / видео
+            c.contains("открой камеру") || c.contains("включи камеру") -> "OPEN_CAMERA"
+            c.contains("сними на видео") || c.contains("запиши видео") || c.contains("включи видео камеру") -> "OPEN_VIDEO_CAMERA"
+
+            // Галерея
+            c.contains("открой галерею") || c.contains("покажи фото") -> "OPEN_GALLERY"
+
+            // Настройки
+            c.contains("открой настройки") || c.contains("зайди в настройки") -> "OPEN_SETTINGS"
+            c.contains("вайфай") || c.contains("wi-fi") -> "OPEN_WIFI_SETTINGS"
+            c.contains("блютуз") || c.contains("bluetooth") -> "OPEN_BT_SETTINGS"
+
+            // Музыка / приложения
+            c.contains("музыка в вк") || c.contains("включи вк") -> "OPEN_PACKAGE:com.vkontakte.android"
+            c.contains("открой ютуб") || c.contains("включи ютуб") -> "OPEN_PACKAGE:com.google.android.youtube"
+            c.contains("открой браузер") -> "OPEN_URL:https://yandex.ru"
+
+            // Будильник / таймер
+            c.contains("поставь будильник") -> "SET_ALARM"
+            c.contains("поставь таймер") -> "SET_TIMER_60"
+
             else -> null
         }
     }
@@ -69,25 +89,33 @@ class CommandProcessor(
             action == "OPEN_VIDEO_CAMERA" ->
                 startIntent(Intent(MediaStore.INTENT_ACTION_VIDEO_CAMERA), "Открываю видео камеру")
 
+            action == "OPEN_GALLERY" -> {
+                val i = Intent(Intent.ACTION_VIEW).apply { type = "image/*" }
+                startIntent(i, "Открываю галерею")
+            }
+
             action == "OPEN_SETTINGS" ->
                 startIntent(Intent(Settings.ACTION_SETTINGS), "Открываю настройки")
 
-            action == "OPEN_VK" ->
-                openPackage("com.vkontakte.android", "Открываю ВК")
+            action == "OPEN_WIFI_SETTINGS" ->
+                startIntent(Intent(Settings.ACTION_WIFI_SETTINGS), "Открываю Wi-Fi настройки")
 
-            action == "SET_TIMER_60" -> {
-                val i = Intent(AlarmClock.ACTION_SET_TIMER).apply {
-                    putExtra(AlarmClock.EXTRA_LENGTH, 60)
-                    putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-                }
-                startIntent(i, "Открываю таймер")
-            }
+            action == "OPEN_BT_SETTINGS" ->
+                startIntent(Intent(Settings.ACTION_BLUETOOTH_SETTINGS), "Открываю Bluetooth настройки")
 
             action == "SET_ALARM" -> {
                 val i = Intent(AlarmClock.ACTION_SET_ALARM).apply {
                     putExtra(AlarmClock.EXTRA_SKIP_UI, false)
                 }
                 startIntent(i, "Открываю будильник")
+            }
+
+            action == "SET_TIMER_60" -> {
+                val i = Intent(AlarmClock.ACTION_SET_TIMER).apply {
+                    putExtra(AlarmClock.EXTRA_LENGTH, 60)
+                    putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                }
+                startIntent(i, "Открываю таймер на минуту")
             }
 
             action.startsWith("SEARCH_YANDEX:") ->
@@ -100,7 +128,7 @@ class CommandProcessor(
                 openPackage(action.substringAfter("OPEN_PACKAGE:").trim(), "Открываю приложение")
 
             else -> {
-                speak("Небезопасное или неизвестное действие отклонено")
+                speak("Команда не поддерживается")
                 false
             }
         }
@@ -112,11 +140,14 @@ class CommandProcessor(
             return false
         }
         val url = "https://yandex.ru/search/?text=" + Uri.encode(query)
+
         val yandexIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
             setPackage("com.yandex.browser")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+
         return try {
-            context.startActivity(yandexIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            context.startActivity(yandexIntent)
             speak("Ищу в Яндексе: $query")
             true
         } catch (_: Exception) {
@@ -124,30 +155,40 @@ class CommandProcessor(
         }
     }
 
-    private fun openPackage(pkg: String, ok: String): Boolean {
-        val i = context.packageManager.getLaunchIntentForPackage(pkg)
-        return if (i != null) startIntent(i, ok) else run {
+    private fun openUrl(url: String, okText: String): Boolean {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            speak("Некорректная ссылка")
+            return false
+        }
+        val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return startIntent(i, okText)
+    }
+
+    private fun openPackage(pkg: String, okText: String): Boolean {
+        val launch = context.packageManager.getLaunchIntentForPackage(pkg)
+        return if (launch != null) {
+            startIntent(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), okText)
+        } else {
             speak("Приложение не установлено")
             false
         }
     }
 
-    private fun openUrl(url: String, ok: String): Boolean {
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            speak("Некорректная ссылка")
-            return false
-        }
-        return startIntent(Intent(Intent.ACTION_VIEW, Uri.parse(url)), ok)
-    }
-
-    private fun startIntent(intent: Intent, ok: String): Boolean {
+    private fun startIntent(intent: Intent, okText: String): Boolean {
         return try {
             context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            speak(ok)
+            speak(okText)
             true
         } catch (_: Exception) {
-            speak("Не удалось выполнить")
+            speak("Не удалось выполнить команду")
             false
         }
+    }
+
+    private fun normalize(s: String): String {
+        return s.lowercase()
+            .replace("ё", "е")
+            .replace(Regex("\\s+"), " ")
+            .trim()
     }
 }
