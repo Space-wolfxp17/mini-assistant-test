@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.ordis.app.core.AppActions
 import com.ordis.app.ui.MainUiState
 
 @Composable
@@ -50,17 +51,16 @@ fun HomeScreen(
 
         Text(
             text = "Статус: $voiceState",
-            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(top = 8.dp)
         )
 
         Button(
-            onClick = { /* индикатор, управление голосом сейчас авто в MainActivity */ },
+            onClick = { AppActions.onToggleListening?.invoke() },
             modifier = Modifier
                 .fillMaxWidth(0.8f)
                 .padding(top = 12.dp)
         ) {
-            Text(if (isListening) "Слушаю" else "Не слушаю")
+            Text(if (isListening) "Стоп" else "Слушать")
         }
 
         Button(
@@ -68,24 +68,18 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxWidth(0.8f)
                 .padding(top = 20.dp)
-        ) {
-            Text("Настройки")
-        }
+        ) { Text("Настройки") }
 
         Button(
             onClick = onOpenConsole,
             modifier = Modifier
                 .fillMaxWidth(0.8f)
                 .padding(top = 10.dp)
-        ) {
-            Text("Консоль")
-        }
+        ) { Text("Консоль") }
 
         TextButton(
             onClick = onOpenVersion,
             modifier = Modifier.padding(top = 8.dp)
-        ) {
-            Text("Версия")
-        }
+        ) { Text("Версия") }
     }
 }
