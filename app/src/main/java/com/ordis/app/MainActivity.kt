@@ -1,9 +1,11 @@
 package com.ordis.app
 
 import android.Manifest
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,6 +15,7 @@ import com.ordis.app.chat.ConversationMemoryRepository
 import com.ordis.app.chat.GeminiChatService
 import com.ordis.app.chat.UserProfileRepository
 import com.ordis.app.core.AppActions
+import com.ordis.app.data.repo.ConsoleRepository
 import com.ordis.app.data.repo.SettingsRepository
 import com.ordis.app.ui.MainUiState
 import com.ordis.app.ui.theme.OrdisTheme
@@ -27,83 +30,98 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var commandProcessor: CommandProcessor
 
     private lateinit var settingsRepository: SettingsRepository
+    private lateinit var consoleRepository: ConsoleRepository
     private lateinit var memoryRepository: ConversationMemoryRepository
     private lateinit var profileRepository: UserProfileRepository
     private lateinit var conversationManager: ConversationManager
 
     private var micGranted = false
+    private var autoListen = false // можно переключить при желании
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             micGranted = result[Manifest.permission.RECORD_AUDIO] == true
+            val camGranted = result[Manifest.permission.CAMERA] == true
+
             MainUiState.setVoiceState(
                 if (micGranted) "Микрофон готов" else "Нет доступа к микрофону"
             )
+
+            consoleRepository.info("PERMISSIONS", "mic=$micGranted camera=$camGranted")
+
+            if (micGranted && autoListen) {
+                startListening()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 1) TTS
-        tts = TextToSpeech(this, this)
-
-        // 2) Репозитории
+        // Репозитории
         settingsRepository = SettingsRepository()
+        consoleRepository = ConsoleRepository()
         memoryRepository = ConversationMemoryRepository(this)
         profileRepository = UserProfileRepository(this)
 
-        // 3) Онлайн чат-сервис (Gemini)
+        // TTS
+        tts = TextToSpeech(this, this)
+
+        // Chat service
         val chatService = GeminiChatService {
             settingsRepository.settings.value.geminiApiKey
         }
 
-        // 4) Conversation manager (единый диалог)
+        // Conversation manager
         conversationManager = ConversationManager(
             memory = memoryRepository,
-            profile = profileRepository,
+            profileRepo = profileRepository,
             chatService = chatService,
-            speak = { speak(it) }
+            speak = { speak(it) },
+            onDebug = { dbg -> consoleRepository.info("CONV_DEBUG", dbg) }
         )
 
-        // 5) Processor: actions + разговор
+        // Command processor
         commandProcessor = CommandProcessor(
             context = this,
             speak = { speak(it) },
             conversationManager = conversationManager
         )
 
-        // 6) Voice manager
+        // Voice manager
         voiceManager = VoiceManager(
             context = this,
             onText = { text ->
-                // Обрабатываем только если есть обращение
+                consoleRepository.info("ASR_TEXT", text)
                 if (text.lowercase().contains("ордис")) {
                     MainUiState.setVoiceState("Поняла: $text")
                     commandProcessor.process(text)
                 }
             },
-            onState = { MainUiState.setVoiceState(it) }
+            onState = { state ->
+                MainUiState.setVoiceState(state)
+                consoleRepository.info("VOICE_STATE", state)
+            }
         )
         voiceManager.init()
 
-        // 7) Кнопка Start/Stop из UI
+        // Глобальные действия для UI
         AppActions.onToggleListening = {
             if (!micGranted) {
                 askPermissions()
                 return@onToggleListening
             }
+            if (MainUiState.isListening.value) stopListening() else startListening()
+        }
 
-            val listeningNow = MainUiState.isListening.value
-            if (listeningNow) {
-                voiceManager.stopLoop()
-                MainUiState.setListening(false)
-                MainUiState.setVoiceState("Прослушивание остановлено")
-            } else {
-                voiceManager.startLoop()
-                MainUiState.setListening(true)
-                MainUiState.setVoiceState("Слушаю...")
-            }
+        AppActions.onExportMemory = {
+            exportMemoryToDownloads(this)
+        }
+
+        AppActions.onClearMemory = {
+            memoryRepository.clearHistory()
+            Toast.makeText(this, "История очищена", Toast.LENGTH_SHORT).show()
+            consoleRepository.info("MEMORY", "history cleared")
         }
 
         askPermissions()
@@ -122,23 +140,102 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun startListening() {
+        voiceManager.startLoop()
+        MainUiState.setListening(true)
+        MainUiState.setVoiceState("Слушаю...")
+        consoleRepository.info("VOICE", "startListening")
+    }
+
+    private fun stopListening() {
+        voiceManager.stopLoop()
+        MainUiState.setListening(false)
+        MainUiState.setVoiceState("Остановлено")
+        consoleRepository.info("VOICE", "stopListening")
+    }
+
     private fun speak(text: String) {
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ordis_tts")
     }
 
     private fun askPermissions() {
-        val permissions = mutableListOf(
+        val list = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CAMERA
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions += Manifest.permission.POST_NOTIFICATIONS
+            list += Manifest.permission.POST_NOTIFICATIONS
         }
-        permissionLauncher.launch(permissions.toTypedArray())
+        permissionLauncher.launch(list.toTypedArray())
+    }
+
+    private fun exportMemoryToDownloads(context: Context) {
+        try {
+            val history = memoryRepository.getHistory(300)
+            val facts = memoryRepository.getFacts()
+            val topics = memoryRepository.topTopics(30)
+            val profile = profileRepository.getProfile()
+
+            val json = buildString {
+                append("{\n")
+                append("  \"profile\": {\n")
+                append("    \"preferredStyle\": \"${escape(profile.preferredStyle)}\",\n")
+                append("    \"level\": \"${escape(profile.level)}\",\n")
+                append("    \"interests\": \"${escape(profile.interests)}\",\n")
+                append("    \"responseLength\": \"${escape(profile.responseLength)}\",\n")
+                append("    \"responseFormat\": \"${escape(profile.responseFormat)}\",\n")
+                append("    \"emotionalTonePreference\": \"${escape(profile.emotionalTonePreference)}\",\n")
+                append("    \"wantsExamples\": ${profile.wantsExamples},\n")
+                append("    \"wantsStepByStep\": ${profile.wantsStepByStep}\n")
+                append("  },\n")
+
+                append("  \"facts\": [\n")
+                facts.forEachIndexed { i, f ->
+                    append("    {\"key\":\"${escape(f.key)}\",\"value\":\"${escape(f.value)}\",\"confidence\":${f.confidence},\"updatedAt\":${f.updatedAt}}")
+                    if (i < facts.lastIndex) append(",")
+                    append("\n")
+                }
+                append("  ],\n")
+
+                append("  \"topics\": [\n")
+                topics.forEachIndexed { i, t ->
+                    append("    {\"topic\":\"${escape(t.first)}\",\"count\":${t.second}}")
+                    if (i < topics.lastIndex) append(",")
+                    append("\n")
+                }
+                append("  ],\n")
+
+                append("  \"history\": [\n")
+                history.forEachIndexed { i, h ->
+                    append("    {\"role\":\"${escape(h.role)}\",\"text\":\"${escape(h.text)}\",\"ts\":${h.ts}}")
+                    if (i < history.lastIndex) append(",")
+                    append("\n")
+                }
+                append("  ]\n")
+                append("}\n")
+            }
+
+            val fileName = "ordis_memory_${System.currentTimeMillis()}.json"
+            context.openFileOutput(fileName, MODE_PRIVATE).use {
+                it.write(json.toByteArray())
+            }
+
+            Toast.makeText(context, "Экспортировано: /data/data/.../$fileName", Toast.LENGTH_LONG).show()
+            consoleRepository.info("MEMORY_EXPORT", "ok: $fileName")
+        } catch (e: Exception) {
+            Toast.makeText(context, "Ошибка экспорта: ${e.message}", Toast.LENGTH_LONG).show()
+            consoleRepository.error("MEMORY_EXPORT", "fail: ${e.message}")
+        }
+    }
+
+    private fun escape(s: String): String {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
     }
 
     override fun onDestroy() {
         AppActions.onToggleListening = null
+        AppActions.onExportMemory = null
+        AppActions.onClearMemory = null
         voiceManager.release()
         tts.stop()
         tts.shutdown()
