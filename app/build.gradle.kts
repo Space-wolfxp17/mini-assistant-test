@@ -9,10 +9,11 @@ android {
 
     defaultConfig {
         applicationId = "com.ordis.app"
-        minSdk = 28 // Android 9
+        minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0"
+    }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
