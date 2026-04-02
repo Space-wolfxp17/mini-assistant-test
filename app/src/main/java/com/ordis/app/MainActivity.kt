@@ -18,6 +18,7 @@ import com.ordis.app.core.AppActions
 import com.ordis.app.data.repo.ConsoleRepository
 import com.ordis.app.data.repo.SettingsRepository
 import com.ordis.app.ui.MainUiState
+import com.ordis.app.ui.chat.ChatUiState
 import com.ordis.app.ui.theme.OrdisTheme
 import com.ordis.app.voice.CommandProcessor
 import com.ordis.app.voice.VoiceManager
@@ -120,8 +121,35 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         AppActions.onClearMemory = {
             memoryRepository.clearHistory()
+            ChatUiState.clear()
             Toast.makeText(this, "История очищена", Toast.LENGTH_SHORT).show()
-            consoleRepository.info("MEMORY", "history cleared")
+            consoleRepository.info("MEMORY", "history/chat cleared")
+        }
+
+        // Хук для текстового ChatScreen
+        AppActions.onChatSend = { userText ->
+            val clean = userText.trim()
+            if (clean.isBlank()) return@onChatSend
+
+            ChatUiState.isThinking.value = true
+            ChatUiState.networkState.value = "ready"
+
+            // Сообщение пользователя обычно уже добавляет ChatScreen
+            // Но если вызвано не из ChatScreen — подстрахуемся:
+            if (ChatUiState.messages.lastOrNull()?.text != clean ||
+                ChatUiState.messages.lastOrNull()?.role != "user"
+            ) {
+                ChatUiState.add("user", clean)
+            }
+
+            conversationManager.reply(clean) { answer ->
+                runOnUiThread {
+                    ChatUiState.isThinking.value = false
+                    ChatUiState.add("assistant", answer)
+                    ChatUiState.networkState.value =
+                        if (answer.contains("оффлайн", ignoreCase = true)) "offline" else "online"
+                }
+            }
         }
 
         askPermissions()
@@ -236,6 +264,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         AppActions.onToggleListening = null
         AppActions.onExportMemory = null
         AppActions.onClearMemory = null
+        AppActions.onChatSend = null
         voiceManager.release()
         tts.stop()
         tts.shutdown()
