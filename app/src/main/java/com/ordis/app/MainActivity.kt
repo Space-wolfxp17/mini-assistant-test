@@ -8,6 +8,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import com.ordis.app.chat.ConversationManager
+import com.ordis.app.chat.ConversationMemoryRepository
+import com.ordis.app.chat.GeminiChatService
+import com.ordis.app.chat.UserProfileRepository
 import com.ordis.app.core.AppActions
 import com.ordis.app.data.repo.SettingsRepository
 import com.ordis.app.ui.MainUiState
@@ -19,43 +23,63 @@ import java.util.Locale
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
-    private lateinit var settingsRepository: SettingsRepository
-    private lateinit var commandProcessor: CommandProcessor
     private lateinit var voiceManager: VoiceManager
+    private lateinit var commandProcessor: CommandProcessor
+
+    private lateinit var settingsRepository: SettingsRepository
+    private lateinit var memoryRepository: ConversationMemoryRepository
+    private lateinit var profileRepository: UserProfileRepository
+    private lateinit var conversationManager: ConversationManager
 
     private var micGranted = false
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             micGranted = result[Manifest.permission.RECORD_AUDIO] == true
-            if (micGranted) {
-                MainUiState.setVoiceState("Микрофон готов")
-            } else {
-                MainUiState.setVoiceState("Нет доступа к микрофону")
-            }
+            MainUiState.setVoiceState(
+                if (micGranted) "Микрофон готов" else "Нет доступа к микрофону"
+            )
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // 1) TTS
         tts = TextToSpeech(this, this)
 
-        // Один инстанс репозитория для Activity
+        // 2) Репозитории
         settingsRepository = SettingsRepository()
+        memoryRepository = ConversationMemoryRepository(this)
+        profileRepository = UserProfileRepository(this)
 
-        // ВАЖНО: новый конструктор с settingsRepository
-        commandProcessor = CommandProcessor(
-            context = this,
-            settingsRepository = settingsRepository,
+        // 3) Онлайн чат-сервис (Gemini)
+        val chatService = GeminiChatService {
+            settingsRepository.settings.value.geminiApiKey
+        }
+
+        // 4) Conversation manager (единый диалог)
+        conversationManager = ConversationManager(
+            memory = memoryRepository,
+            profile = profileRepository,
+            chatService = chatService,
             speak = { speak(it) }
         )
 
+        // 5) Processor: actions + разговор
+        commandProcessor = CommandProcessor(
+            context = this,
+            speak = { speak(it) },
+            conversationManager = conversationManager
+        )
+
+        // 6) Voice manager
         voiceManager = VoiceManager(
             context = this,
             onText = { text ->
-                // активация по имени
+                // Обрабатываем только если есть обращение
                 if (text.lowercase().contains("ордис")) {
+                    MainUiState.setVoiceState("Поняла: $text")
                     commandProcessor.process(text)
                 }
             },
@@ -63,16 +87,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         )
         voiceManager.init()
 
+        // 7) Кнопка Start/Stop из UI
         AppActions.onToggleListening = {
             if (!micGranted) {
                 askPermissions()
                 return@onToggleListening
             }
-            val listening = MainUiState.isListening.value
-            if (listening) {
+
+            val listeningNow = MainUiState.isListening.value
+            if (listeningNow) {
                 voiceManager.stopLoop()
                 MainUiState.setListening(false)
-                MainUiState.setVoiceState("Остановлено")
+                MainUiState.setVoiceState("Прослушивание остановлено")
             } else {
                 voiceManager.startLoop()
                 MainUiState.setListening(true)
@@ -92,7 +118,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale("ru", "RU")
-            speak("Привет, я Ордис. Готова к командам.")
+            speak("Привет, я Ордис. Готова общаться.")
         }
     }
 
@@ -101,14 +127,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun askPermissions() {
-        val list = mutableListOf(
+        val permissions = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CAMERA
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            list += Manifest.permission.POST_NOTIFICATIONS
+            permissions += Manifest.permission.POST_NOTIFICATIONS
         }
-        permissionLauncher.launch(list.toTypedArray())
+        permissionLauncher.launch(permissions.toTypedArray())
     }
 
     override fun onDestroy() {
