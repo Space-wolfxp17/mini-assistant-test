@@ -43,6 +43,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 @Composable
+fun updateGeminiApiKey(newKey: String) {
+    val cur = settings.value
+    settings.value = cur.copy(geminiApiKey = newKey)
+}
 fun SettingsScreen(
     settingsRepository: SettingsRepository
 ) {
