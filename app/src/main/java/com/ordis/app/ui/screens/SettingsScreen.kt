@@ -20,11 +20,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ordis.app.data.model.VoiceGender
 import com.ordis.app.data.repo.ConsoleRepository
 import com.ordis.app.data.repo.SettingsRepository
+import com.ordis.app.device.PhoneAnalyzer
 
 @Composable
 fun SettingsScreen(
@@ -33,6 +37,8 @@ fun SettingsScreen(
     consoleRepository: ConsoleRepository
 ) {
     val settings by settingsRepository.settings.collectAsState()
+    val context = LocalContext.current
+    val reportState = remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -112,6 +118,26 @@ fun SettingsScreen(
                 onClick = { settingsRepository.setVoiceGender(VoiceGender.MALE) },
                 modifier = Modifier.weight(1f)
             ) { Text(if (settings.voiceGender == VoiceGender.MALE) "Мужской ✓" else "Мужской") }
+        }
+
+        Button(
+            onClick = {
+                reportState.value = PhoneAnalyzer.analyze(context)
+                consoleRepository.info("ANALYZE", "Выполнен анализ телефона")
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 14.dp)
+        ) {
+            Text("Анализ телефона")
+        }
+
+        if (reportState.value.isNotBlank()) {
+            Text(
+                text = reportState.value,
+                modifier = Modifier.padding(top = 10.dp),
+                color = MaterialTheme.colorScheme.onBackground
+            )
         }
 
         Button(
